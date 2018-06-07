@@ -1,16 +1,16 @@
 -- This file was automatically generated for the LuaDist project.
 
 package = "clutch"
-version = "1.0-1"
+version = "1.1-0"
 -- LuaDist source
 source = {
-  tag = "1.0-1",
+  tag = "1.1-0",
   url = "git://github.com/LuaDist-testing/clutch.git"
 }
 -- Original source
 -- source = {
 --     url = "git://github.com/akojo/clutch",
---     tag = "v1.0"
+--     tag = "v1.1"
 -- }
 description = {
     summary = "A simple API for sqlite3",

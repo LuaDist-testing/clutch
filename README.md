@@ -102,9 +102,8 @@ function getPartByPnum(pnum)
 do
 ```
 
-NB. This functionality is strictly limited to the locals and arguments of
-currently executing function. It cannot be used to interpolate global
-variables, nor variables in the function's closure.
+NB. This functionality is limited to locals in the scope of currently executing
+function. It cannot be used to interpolate global variables.
 
 ## Issuing updates to the database
 
@@ -149,11 +148,11 @@ prepared statement using database `prepare()` method; then bind parameters and
 run the statement using its `update()`, `query()`, `queryone()` or `queryall()`
 methods. These methods correspond exactly to the database methods of same name.
 
-For example, to iterate through all red parts:
+For example, to „„ate through all red parts:
 
 ```lua
 local stmt = db:prepare("select * from p where color = :color")
-for p in stmt:iter({color = "Red"})
+for p in stmt:query({color = "Red"})
     print(p.name)
 end
 ```
@@ -163,7 +162,7 @@ binding as the database query methods, this can also be written e.g.:
 
 ```lua
 local stmt = db:prepare("select * from p where color = ?")
-for p in stmt:iter("Red")
+for p in stmt:query("Red")
     print(p.name)
 end
 ```
@@ -186,8 +185,8 @@ Calling any of the statement methods will cause the statement to be
 reset. This design has two notable implications:
 
 * It is perfectly safe to not iterate through all resulting rows when using
-`iter()`
-* Mixing calls to an iterator obtained via `iter()` and any of the statement
+`query()`
+* Mixing calls to an iterator obtained via `query()` and any of the statement
 methods will produce unpredictable results
 
 ## Transactions

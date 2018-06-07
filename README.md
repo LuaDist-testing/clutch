@@ -71,7 +71,7 @@ they're simple to use
 db:query("select * from p where color = ?", {'Red'})
 ```
 
-Positional parameters can be supplied by prefixing the `?` with a number:
+Positional parameters can be supplied by suffixing the `?` with a number:
 
 ```lua
 db:query("select * from p where weight = ?2 color = ?1", {'Red', 12})
@@ -81,7 +81,7 @@ NB. Even though it is entirely possible to mix named, anonymous and positional
 parameters in the same query, I wouldn't recommend trying to do that unless you
 really want to confuse your readers.
 
-For a small number of parameters, it is a bit inconvenient to always write
+For a small number of parameters it is a bit inconvenient to always write
 the extra braces, so Clutch supports binding anonymous and positional
 parameters also as varargs:
 
@@ -91,9 +91,10 @@ db:query("select * from p where weight < ? and color = ?", 15, 'Red')
 
 ### Interpolated parameters
 
-For added convenience, if there are no extra arguments after the query, Clutch
-tries to look up for local variables with the same name as the query parameters.
-This comes in handy when you have e.g. wrapper functions around common queries:
+For added convenience, if there are no extra arguments after the query string,
+Clutch tries to look up for local variables with the same name as the query
+parameters. This comes in handy when you have e.g. wrapper functions around
+common queries:
 
 ```lua
 function getPartByPnum(pnum)
@@ -140,6 +141,75 @@ end
 
 `update()` uses the same code for preparing queries as `query()` and its
 friends so you can use all the same mechanisms for parameter binding.
+
+## Prepared statements
+
+Clutch supports a straightforward way to use prepared statements. You create a
+prepared statement using database `prepare()` method; then bind parameters and
+run the statement using its `update()`, `query()`, `queryone()` or `queryall()`
+methods. These methods correspond exactly to the database methods of same name.
+
+For example, to iterate through all red parts:
+
+```lua
+local stmt = db:prepare("select * from p where color = :color")
+for p in stmt:iter({color = "Red"})
+    print(p.name)
+end
+```
+
+Since the statement methods support all the same mechanisms for parameter
+binding as the database query methods, this can also be written e.g.:
+
+```lua
+local stmt = db:prepare("select * from p where color = ?")
+for p in stmt:iter("Red")
+    print(p.name)
+end
+```
+
+NB. Even though prepared statements support also interpolated parameters, using
+them will most likely lead to code that's very hard to decipher.
+
+As another example, to insert some values into table `p`, and demonstrate yet
+another way of binding parameters:
+
+```lua
+local stmt = db:prepare("insert into p values (?, ?, ?, ?, ?)")
+
+stmt:update({1, "Nut", "Red", 12.0, "London"})
+stmt:update({2, "Bolt", "Green", 17.0, "Paris"})
+stmt:update({3, "Screw", "Blue", 17.0, "Oslo"})
+```
+
+Calling any of the statement methods will cause the statement to be
+reset. This design has two notable implications:
+
+* It is perfectly safe to not iterate through all resulting rows when using
+`iter()`
+* Mixing calls to an iterator obtained via `iter()` and any of the statement
+methods will produce unpredictable results
+
+## Transactions
+
+Clutch support transactions using the `transaction()` method. The method takes
+as a single parameter a function which will be run inside the transaction. Any
+error (be it from sqlite or Lua code) inside a transaction causes it to be
+aborted and rolled back. This will also cause the error to be thrown from the
+transaction call.
+
+For example:
+
+```lua
+db:transaction(function (t)
+    t:update("insert into p values (7, 'Washer', 'Grey', 5, 'Helsinki')")
+    t:update("insert into p values (8, 'Washer', 'Black', 7, 'Helsinki')")
+end)
+```
+
+Since transactions have been implemented using sqlite3 savepoints, they can be
+freely nested. In addition, a rollback in an inner transaction doesn't
+automatically cause a rollback of the outer transaction.
 
 ## Error handling
 

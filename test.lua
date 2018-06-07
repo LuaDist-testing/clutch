@@ -203,6 +203,178 @@ function TestClutch:testDeleteWithNoMatchingRowsReturnsZero()
     luaunit.assertEquals(n, 0)
 end
 
+function TestClutch:testPreparedStatement()
+    local stmt = self.db:prepare("select city from p where pnum = :pnum")
+    local iter = stmt:query({pnum = 1})
+    luaunit.assertItemsEquals(iter(), {city = "London"})
+end
+
+function TestClutch:testPreparedStatementCanBeRebound()
+    local stmt = self.db:prepare("select pnum, city from p where pnum = :pnum")
+    for pnum, city in ipairs({"London", "Paris"}) do
+        local iter = stmt:query({pnum = pnum})
+        luaunit.assertItemsEquals(iter(), {pnum = pnum, city = city})
+    end
+end
+
+function TestClutch:testPreparedStatementIterReturnsNilAfterLastResult()
+    local stmt = self.db:prepare("select city from p where pnum = :pnum")
+    local iter = stmt:query({pnum = 2})
+    luaunit.assertItemsEquals(iter(), {city = "Paris"})
+    luaunit.assertNil(iter())
+end
+
+function TestClutch:testPreparedStatementIterReturnsNilForNoResults()
+    local stmt = self.db:prepare("select city from p where pnum = :pnum")
+    local iter = stmt:query({pnum = 100})
+    luaunit.assertNil(iter())
+end
+
+function TestClutch:testPreparedStatementIterWorksWithTableArguments()
+    local stmt = self.db:prepare("select city from p where pnum = ?")
+    local iter = stmt:query({3})
+    luaunit.assertItemsEquals(iter(), {city = "Oslo"})
+end
+
+function TestClutch:testPreparedStatementIterWorksWithVarargs()
+    local stmt = self.db:prepare("select city from p where pnum = ?")
+    local iter = stmt:query(3)
+    luaunit.assertItemsEquals(iter(), {city = "Oslo"})
+end
+
+function TestClutch:testPreparedStatementReturnsOneResult()
+    local stmt = self.db:prepare("select city from p where pnum = :pnum")
+    luaunit.assertItemsEquals(stmt:queryone({pnum = 1}), {city = "London"})
+end
+
+function TestClutch:testPreparedStatementOneFailsWithNoResults()
+    local stmt = self.db:prepare("select city from p where pnum = :pnum")
+    luaunit.assertErrorMsgContains("no results",
+        function() stmt:queryone({pnum = 100}) end)
+end
+
+function TestClutch:testPreparedStatementOneFailsWithTooManyResults()
+    local stmt = self.db:prepare("select city from p where color = :color")
+    luaunit.assertErrorMsgContains("too many results",
+        function() stmt:queryone({color = "Red"}) end)
+end
+
+function TestClutch:testPreparedStatementOneWorksWithTableArguments()
+    local stmt = self.db:prepare("select city from p where pnum = ?")
+    luaunit.assertItemsEquals(stmt:queryone({4}), {city = "London"})
+end
+
+function TestClutch:testPreparedStatementOneWorksWithVarargs()
+    local stmt = self.db:prepare("select city from p where pnum = ?")
+    luaunit.assertItemsEquals(stmt:queryone(4), {city = "London"})
+end
+
+function TestClutch:testPreparedStatementReturnsAllResults()
+    local stmt = self.db:prepare("select pname from p where color = :color")
+    local results = stmt:queryall({color = "Red"})
+    for i, name in ipairs({"Nut", "Screw", "Cog"}) do
+        luaunit.assertItemsEquals(results[i], {pname = name})
+    end
+end
+
+function TestClutch:testPreparedStatementAllResultsEmptyTableForNoResults()
+    local stmt = self.db:prepare("select pname from p where color = :color")
+    luaunit.assertEquals(stmt:queryall({color = "Pink"}), {})
+end
+
+function TestClutch:testPreparedStatementAllWorksWithTableArguments()
+    local stmt = self.db:prepare("select city from p where pnum = ?")
+    luaunit.assertItemsEquals(stmt:queryall({5})[1], {city = "Paris"})
+end
+
+function TestClutch:testPreparedStatementAllWorksWithVarargs()
+    local stmt = self.db:prepare("select city from p where pnum = ?")
+    luaunit.assertItemsEquals(stmt:queryall(5)[1], {city = "Paris"})
+end
+
+function TestClutch:testPreparedStatementUpdate()
+    local stmt = self.db:prepare("insert into p values (?, ?, ?, ?, ?)")
+    stmt:update({7, "Washer", "Grey", 5.0, "Helsinki"})
+
+    local result = self.db:queryone("select pname from p where pnum = 7")
+    luaunit.assertEquals(result.pname, "Washer")
+end
+
+function TestClutch:testUpdateInTransactionSucceeds()
+    self.db:transaction(function (t)
+        t:update("insert into p values (7, 'Washer', 'Grey', 5, 'Helsinki')")
+    end)
+    luaunit.assertItemsEquals(
+        self.db:queryone('select city from p where pnum = 7'),
+        {city = "Helsinki"}
+    )
+end
+
+function TestClutch:testTransactionReturnsTheValuesFromTransactionFunction()
+    local success, result = self.db:transaction(function (t)
+        return t:update("insert into p values (7, 'Washer', 'Grey', 5, 'Helsinki')")
+    end)
+    luaunit.assertTrue(success)
+    luaunit.assertEquals(result, 1)
+end
+
+function TestClutch:testTransactionRollsBackInCaseOfConstrainFailure()
+    local success, result = self.db:transaction(function (t)
+        t:update("insert into p values (7, 'Washer', 'Grey', 5, 'Helsinki')")
+        t:update("insert into p values (7, 'Washer', 'Grey', 5, 'Helsinki')")
+    end)
+    luaunit.assertFalse(success)
+    luaunit.assertStrContains(result, "UNIQUE constraint failed")
+    luaunit.assertEquals(#self.db:queryall("select * from p where pnum = 7"), 0)
+end
+
+function TestClutch:testTransactionRollsBackInCaseOfLuaError()
+    local success, result = self.db:transaction(function (t)
+        t:update("insert into p values (7, 'Washer', 'Grey', 5, 'Helsinki')")
+        error("Lua error")
+    end)
+    luaunit.assertFalse(success)
+    luaunit.assertStrContains(result, "Lua error")
+    luaunit.assertEquals(#self.db:queryall("select * from p where pnum = 7"), 0)
+end
+
+function TestClutch:testNestedTransactionWritesToDatabase()
+    self.db:transaction(function (t)
+        t:update("insert into p values (7, 'Washer', 'Grey', 5, 'Helsinki')")
+        t:transaction(function (t2)
+            t2:update("insert into p values (8, 'Washer', 'Black', 7, 'Helsinki')")
+        end)
+    end)
+    luaunit.assertItemsEquals(
+        #self.db:queryall("select city from p where city = 'Helsinki'"), 2)
+end
+
+function TestClutch:testErrorInNestedTransactionRollsBackOnlyInnerTransaction()
+    local success, result = self.db:transaction(function (t)
+        t:update("insert into p values (7, 'Washer', 'Grey', 5, 'Helsinki')")
+        return t:transaction(function (t2)
+            t2:update("insert into p values (8, 'Washer', 'Black', 7, 'Helsinki')")
+            error("Inner transaction")
+        end)
+    end)
+    luaunit.assertTrue(success)
+    luaunit.assertItemsEquals(
+        #self.db:queryall("select city from p where city = 'Helsinki'"), 1)
+end
+
+function TestClutch:testErrorInOuterTransactionRollsBackAlsoInnerTransaction()
+    local success, result = self.db:transaction(function (t)
+        t:transaction(function (t2)
+            t2:update("insert into p values (8, 'Washer', 'Black', 7, 'Helsinki')")
+        end)
+        return t:update("insert into p values (8, 'Washer', 'Grey', 5, 'Helsinki')")
+    end)
+    luaunit.assertFalse(success)
+    luaunit.assertStrContains(result, "UNIQUE constraint failed")
+    luaunit.assertItemsEquals(
+        #self.db:queryall("select city from p where city = 'Helsinki'"), 0)
+end
+
 function TestClutch:testQueryOneReportsErrorWithTooManyResults()
     luaunit.assertErrorMsgContains(
         "too many results",
